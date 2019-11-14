@@ -42,8 +42,8 @@ class TimeSeriesDataset(object):
         train_indices = range(int(train_prop * len_data))
         test_indices = range(int(train_prop * len_data), len_data)
 
-        train_set = Subset(data, train_indices)
-        test_set = Subset(data, test_indices)
+        train_set = Subset(self.data, train_indices)
+        test_set = Subset(self.data, test_indices)
 
         train_iter = DataLoader(train_set, batch_size=batch_size, shuffle=False)
         test_iter = DataLoader(test_set, batch_size=batch_size, shuffle=False)
