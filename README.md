@@ -1,2 +1,2 @@
 # time-series-dataset
-Custom DataSet for time series applications in PyTorch. Returns two iterables for training and testing.
+Custom dataset creating overlapping windows of lagged values for PyTorch. Returns two iterables for training and testing.
