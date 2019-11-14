@@ -1,2 +1,2 @@
 # time-series-dataset
-Custom dataset for time series in PyTorch
+Custom DataSet for time series applications in PyTorch. Returns two iterables for training and testing.
