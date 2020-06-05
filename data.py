@@ -1,52 +1,80 @@
 import torch
-import numpy as np
-from torch.utils.data import TensorDataset, DataLoader, Subset
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
 
 
 class TimeSeriesDataset(object):
-    def __init__(self, data, index_output_col=-1, seq_length=1, prediction_window=1, ylog=True):
-        '''Params:
-        - data: numpy array of shape nb_obs * nb_features with target cols as last columns
-        - index_output_col: index of the column we want to predict
-        - seq_length: window length to use
-        - prediction_time: window length to predict'''
+    def __init__(self, data, categorical_cols, target_col, seq_length, prediction_window=1):
+        '''
+        :param data: dataset of type pandas.DataFrame
+        :param categorical_cols: name of the categorical columns, if None pass empty list
+        :param target_col: name of the targeted column
+        :param seq_length: window length to use
+        :param prediction_window: window length to predict
+        '''
         self.data = data
-        self.index_output_col = index_output_col
+        self.categorical_cols = categorical_cols
+        self.numerical_cols = list(set(data.columns) - set(categorical_cols) - set(target_col))
+        self.target_col = target_col
         self.seq_length = seq_length
         self.prediction_window = prediction_window
-        self.ylog = ylog
-        self.frame_series()
+        self.preprocessor = None
 
-    def frame_series(self):
-        nb_obs = self.data.shape[0]
-        X = self.data[:, :self.index_output_col]
-        y = self.data[:, self.index_output_col]
+    def preprocess_data(self):
+        '''Preprocessing function'''
+        X = self.data.drop(self.target_col, axis=1)
+        y = self.data[self.target_col]
 
-        features, labels = [], []
-        for i in range(nb_obs - self.seq_length - self.prediction_window):
-            features.append(X[i:i + self.seq_length, :])
+        self.preprocess = ColumnTransformer(
+            [("scaler", StandardScaler(), self.numerical_cols),
+             ("encoder", OneHotEncoder(), self.categorical_cols)],
+            remainder="passthrough"
+        )
 
-        for i in range(self.seq_len, nb_obs - self.prediction_window):
-            labels.append(y[i: i + self.prediction_window])
+        X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.8, shuffle=False)
+        X_train = self.preprocessor.fit_transform(X_train)
+        X_test = self.preprocessor.transform(X_test)
 
-        x_arr = np.array(features).reshape((len(features), features[0].shape[0], features[0].shape[1]))
-        y_arr = np.array(labels).reshape(len(labels), labels[0].shape[0])
-        if self.ylog:
-            y_arr = np.log(y_arr)
+        if self.target_col:
+            return X_train, X_test, y_train.values, y_test.values
+        return X_train, X_test
 
-        x_var, y_var = torch.Tensor(x_arr), torch.Tensor(y_arr)
-        self.data = TensorDataset(x_var, y_var)
+    def frame_series(self, X, y=None):
+        '''
+        Function used to prepare the data for time series prediction
+        :param X: set of features
+        :param y: targeted value to predict
+        :return: TensorDataset
+        '''
+        nb_obs, nb_features = X.shape
+        features, target = [], []
 
-    def get_loaders(self, train_prop=.8, batch_size=batch_size):
-        '''Get DataLoader for both training and testing sets'''
-        len_data = len(self.data)
-        train_max_index = self.batch_safe_len(train_prop * len_data)
-        test_max_index = train_max_index + self.batch_safe_len(len_data - train_max_index)
-        train_set = Subset(self.data, range(train_max_index))
-        test_set = Subset(self.data, range(train_max_index, test_max_index))
-        train_iter = DataLoader(train_set, batch_size=batch_size, shuffle=False)
-        test_iter = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+        for i in range(1, nb_obs - self.seq_length - self.prediction_window):
+            features.append(torch.FloatTensor(X[i:i + self.seq_length, :]).unsqueeze(0))
+
+        features_var = torch.cat(features)
+
+        if y is not None:
+            for i in range(1, nb_obs - self.seq_length - self.prediction_window):
+                target.append(
+                    torch.tensor(y[i + self.seq_length:i + self.seq_length + self.prediction_window]))
+            target_var = torch.cat(target)
+            return TensorDataset(features_var, target_var)
+        return TensorDataset(features_var)
+
+    def get_loaders(self, batch_size: int):
+        '''
+        Preprocess and frame the dataset
+        :param batch_size: batch size
+        :return: DataLoaders associated to training and testing data
+        '''
+        X_train, X_test, y_train, y_test = self.preprocess_data()
+
+        train_dataset = self.frame_series(X_train, y_train)
+        test_dataset = self.frame_series(X_test, y_test)
+
+        train_iter = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=True)
+        test_iter = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, drop_last=True)
         return train_iter, test_iter
-
-    def batch_safe_len(self, num, batch_size=batch_size):
-        return int(num - (num % batch_size))
