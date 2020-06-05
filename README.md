@@ -1,2 +1,3 @@
 # time-series-dataset
-Custom dataset creating overlapping windows of lagged values for PyTorch. Returns two iterables for training and testing.
+Custom PyTorch `Dataset` object for multivariate time series forecasting purposes.
+It splits, preprocesses and frames the provided `pandas.DataFrame` and returns two `DataLoader` for training and testing.
